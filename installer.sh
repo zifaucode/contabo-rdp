@@ -1,63 +1,46 @@
 #!/bin/bash
 
-# --- KONFIGURASI IMAGE ---
+# --- CONFIG ---
 WIN_IMG_URL="https://archive.org/download/windows10_202406/windows10.gz"
-# -------------------------
+# --------------
 
 clear
 echo "===================================================="
-echo "   WINDOWS 10 AUTO INSTALLER (DYNAMIC PASS)         "
+echo "   WINDOWS 10 AUTO INSTALLER - FORCE FIX            "
 echo "===================================================="
-echo ""
 
-# 1. Input Password Dinamis dengan Paksa
-# Menggunakan /dev/tty agar 'read' bisa menerima input meski dijalankan via pipe
-exec < /dev/tty
-echo "Silakan tentukan password untuk Administrator Windows nanti."
-echo "PENTING: Gunakan kombinasi Huruf Besar, Angka, dan Simbol."
-echo "----------------------------------------------------"
+# 1. Cek Nama Disk yang Benar
+echo " [+] Mengecek daftar disk..."
+DISK_TARGET="/dev/vda"
+if [ ! -b /dev/vda ]; then
+    DISK_TARGET="/dev/sda"
+fi
+echo " [+] Target terdeteksi: $DISK_TARGET"
+
+# 2. Input Password
 printf "Ketikan password RDP pengingat : "
 read TARGET_PASS
-echo "----------------------------------------------------"
 
-# Validasi input tidak boleh kosong
-if [ -z "$TARGET_PASS" ]; then
-    echo " [!] Error: Password tidak boleh kosong!"
-    exit 1
-fi
+# 3. UNMOUNT SEMUA PARTISI (Penting agar tidak 'No Space')
+echo " [+] Mematikan swap dan unmount partisi..."
+swapoff -a
+umount -fl /dev/vda* /dev/sda* 2>/dev/null
 
-echo " [+] Password yang Anda simpan: $TARGET_PASS"
-echo " [!] PERINGATAN: Seluruh data di /dev/vda akan DIHAPUS."
-printf "Lanjutkan instalasi? (y/n): "
-read confirm
+# 4. HAPUS PARTISI LAMA (Wipe)
+echo " [+] Menghapus tabel partisi lama agar disk 'plong'..."
+dd if=/dev/zero of=$DISK_TARGET bs=1M count=10 status=progress
+sync
 
-if [ "$confirm" != "y" ]; then
-    echo " [!] Proses dibatalkan oleh pengguna."
-    exit 1
-fi
+# 5. Eksekusi Utama
+echo " [+] Mulai mendownload & menulis ke $DISK_TARGET..."
+# Menggunakan bs=4M untuk mempercepat penulisan dd
+wget -qO- "$WIN_IMG_URL" | gunzip | dd of=$DISK_TARGET bs=4M status=progress
 
-# 2. Persiapan Tools
-echo ""
-echo " [+] Memperbarui sistem dan menginstall wget/gzip..."
-apt-get update -y > /dev/null 2>&1
-apt-get install wget gzip -y > /dev/null 2>&1
-
-# 3. Proses Penulisan Image
-echo " [+] Sedang mengunduh dan menulis image Windows..."
-echo " [+] Proses ini memakan waktu 15-40 menit."
-echo "     Status Penulisan:"
-wget -O- "$WIN_IMG_URL" | gunzip | dd of=/dev/vda status=progress
-
-# 4. Selesai
 echo ""
 echo "----------------------------------------------------"
-echo " [+] INSTALASI SELESAI!"
+echo " [+] PROSES SELESAI!"
 echo "----------------------------------------------------"
 echo " PASSWORD ANDA: $TARGET_PASS"
-echo " 1. VPS akan restart. Pantau via VNC Contabo."
-echo " 2. Login pertama kali gunakan password bawaan image."
-echo " 3. Jalankan di PowerShell: net user Administrator \"$TARGET_PASS\""
 echo "----------------------------------------------------"
-
-sleep 10
+sleep 5
 reboot
